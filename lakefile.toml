@@ -1,0 +1,19 @@
+name = "lean-biscuit"
+version = "0.1.0"
+defaultTargets = ["lean-biscuit"]
+testDriver = "tests"
+
+[[lean_lib]]
+name = "LeanBiscuit"
+
+[[lean_lib]]
+name = "Tests"
+globs = ["Tests.+"]
+
+[[lean_exe]]
+name = "lean-biscuit"
+root = "Main"
+
+[[lean_exe]]
+name = "tests"
+root = "Tests.Main"
