@@ -17,3 +17,8 @@ root = "Main"
 [[lean_exe]]
 name = "tests"
 root = "Tests.Main"
+
+[[require]]
+name = "lean-crypto-hash"
+git = "https://github.com/kim-em/lean-crypto-hash"
+rev = "4fa361c69f257a05c3203b065bbc65ef1cd63b03"

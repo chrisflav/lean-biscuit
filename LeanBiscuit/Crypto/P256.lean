@@ -1,6 +1,5 @@
 import LeanBiscuit.Util.Bytes
-import LeanBiscuit.Crypto.Sha256
-import LeanBiscuit.Crypto.Hmac
+import LeanBiscuit.Crypto.Hash
 
 /-!
 # ECDSA over secp256r1 (NIST P-256)

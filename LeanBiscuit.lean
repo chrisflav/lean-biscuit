@@ -1,7 +1,6 @@
 import LeanBiscuit.Util.Bytes
 import LeanBiscuit.Util.Base64
-import LeanBiscuit.Crypto.Sha512
-import LeanBiscuit.Crypto.Sha256
+import LeanBiscuit.Crypto.Hash
 import LeanBiscuit.Crypto.Ed25519
 import LeanBiscuit.Crypto.P256
 import LeanBiscuit.Error
@@ -18,7 +17,6 @@ import LeanBiscuit.Datalog.Expr
 import LeanBiscuit.Datalog.World
 import LeanBiscuit.Proto.Schema
 import LeanBiscuit.Token.Block
-import LeanBiscuit.Crypto.Hmac
 import LeanBiscuit.Crypto.PrivateKey
 import LeanBiscuit.Token.Signature
 import LeanBiscuit.Token.Biscuit
