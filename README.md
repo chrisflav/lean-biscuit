@@ -13,11 +13,12 @@ logic query rather than an ad-hoc check.
 
 ## What is implemented
 
-The whole specification, with no external dependencies — the cryptography, the
+The whole specification.  The hashes come from
+[lean-crypto-hash](https://github.com/kim-em/lean-crypto-hash), a pure Lean
+library checked against the NIST vectors; the rest of the cryptography, the
 wire format and the logic engine are all written here:
 
-- **Cryptography**: SHA-256, SHA-512, HMAC-SHA256, Ed25519 (RFC 8032) signing
-  and strict verification, and ECDSA over secp256r1 with deterministic nonces
+- **Cryptography**: Ed25519 (RFC 8032) signing and strict verification, and ECDSA over secp256r1 with deterministic nonces
   (RFC 6979), including SEC1 DER signatures and compressed point encodings.
 - **Wire format**: a Protocol Buffers reader and writer, and the biscuit
   container: the signature chain, third-party signatures, sealed tokens, and

@@ -1,6 +1,16 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/kim-em/lean-crypto-hash",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "4fa361c69f257a05c3203b065bbc65ef1cd63b03",
+   "name": "«lean-crypto-hash»",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "4fa361c69f257a05c3203b065bbc65ef1cd63b03",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
  "name": "«lean-biscuit»",
  "lakeDir": ".lake",
  "fixedToolchain": false}

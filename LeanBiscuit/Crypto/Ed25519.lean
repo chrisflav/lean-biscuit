@@ -1,5 +1,5 @@
 import LeanBiscuit.Util.Bytes
-import LeanBiscuit.Crypto.Sha512
+import LeanBiscuit.Crypto.Hash
 
 /-!
 # Ed25519 signature verification
