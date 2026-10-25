@@ -300,6 +300,126 @@ def tokenTests : Failures := Id.run do
     (Bytes.toHex ids[0]! != Bytes.toHex ids[1]!)
   pure fs
 
+/-! ## Signing outside the library -/
+
+/-- A signer that stands in for one outside the library: it signs with the
+primitives directly, not through `PrivateKey`, and records every payload it is
+asked to sign, so that a test can see what the token code handed it. -/
+def recordingSigner (k : PrivateKey) (payload : Bytes) : StateM (List Bytes) Bytes := do
+  modify (· ++ [payload])
+  let signature := match k.algorithm with
+    | .ed25519 => Ed25519.sign k.key payload
+    | .secp256r1 => P256.sign k.key payload
+  pure (signature.getD Bytes.empty)
+
+/-- Run a computation against `recordingSigner`, giving its result and the
+payloads it signed. -/
+def recording (x : ExceptT TokenError (StateM (List Bytes)) α) : Except TokenError α × List Bytes :=
+  (x.run.run []).run
+
+/-- The `…With` forms against a signer the library does not hold: the tokens
+they make are byte for byte the ones the plain forms make (both signature
+schemes here are deterministic), verify and authorize the same, and a signer
+for the wrong key or one that returns a bad signature gives no usable token. -/
+def externalSignerTests : Failures := Id.run do
+  let mut fs : Failures := []
+  let hexKey (s : String) : Bytes := (Bytes.ofHex? s).getD Bytes.empty
+  let roots := [testKey .ed25519 "99e87b0e9158531eeeb503ff15266e2b23c2a2507b138c9d1b1f2ab458df2d61",
+    testKey .secp256r1 "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721"]
+  let ephemeral := testKey .ed25519
+    "1111111111111111111111111111111111111111111111111111111111111111"
+  let ephemeral2 := testKey .ed25519
+    "2222222222222222222222222222222222222222222222222222222222222222"
+  let thirdParty := testKey .secp256r1
+    "3333333333333333333333333333333333333333333333333333333333333333"
+  let .ok thirdPublic := thirdParty.publicKey | pure ["could not derive a public key"]
+  let .ok authority := BlockBuilder.code {}
+    s!"user(\"alice\");\ncheck if group(\"admin\") trusting {thirdPublic.print};"
+    | pure ["could not parse the authority block"]
+  let .ok restriction := BlockBuilder.code {} "check if operation(\"read\");"
+    | pure ["could not parse the attenuating block"]
+  let .ok thirdBlock := BlockBuilder.code {} "group(\"admin\");"
+    | pure ["could not parse the third-party block"]
+  let authorize (t : Token.Biscuit) (code : String) : Except TokenError Nat := do
+    Authorizer.authorizeToken (← AuthorizerBuilder.code {} code) t
+  for root in roots do
+    let name := root.algorithm.name
+    let .ok rootPublic := root.publicKey | return fs ++ ["could not derive the root public key"]
+    -- create
+    let .ok inLean := Biscuit.create root ephemeral authority (rootKeyId := some 7)
+      | return fs ++ [s!"{name}: could not create a token in Lean"]
+    let (external, payloads) := recording
+      (Biscuit.createWith rootPublic (recordingSigner root) ephemeral authority
+        (rootKeyId := some 7))
+    let .ok external := external | return fs ++ [s!"{name}: could not create a token externally"]
+    fs := expectEq fs s!"{name}: createWith asks for exactly one signature" payloads.length 1
+    fs := expectEq fs s!"{name}: createWith gives the bytes create gives"
+      (Bytes.toHex external.toBytes) (Bytes.toHex inLean.toBytes)
+    let .ok external := Biscuit.ofBytes external.toBytes rootPublic
+      | return fs ++ [s!"{name}: an externally signed token did not verify"]
+    fs := expectEq fs s!"{name}: it keeps its root key id" external.rootKeyId (some 7)
+    -- append, signing with the secret the token carries
+    let .ok proof := external.proofKey | return fs ++ [s!"{name}: no proof key"]
+    let .ok proofPublic := proof.publicKey | return fs ++ [s!"{name}: no proof public key"]
+    let .ok appended := Biscuit.append external ephemeral2 restriction
+      | return fs ++ [s!"{name}: could not append in Lean"]
+    let (appendedWith, payloads) := recording
+      (external.appendWith proofPublic (recordingSigner proof) ephemeral2 restriction)
+    let .ok appendedWith := appendedWith
+      | return fs ++ [s!"{name}: could not append externally"]
+    fs := expectEq fs s!"{name}: appendWith asks for exactly one signature" payloads.length 1
+    fs := expectEq fs s!"{name}: appendWith gives the bytes append gives"
+      (Bytes.toHex appendedWith.toBytes) (Bytes.toHex appended.toBytes)
+    let (wrongKey, payloads) := recording
+      (external.appendWith rootPublic (recordingSigner root) ephemeral2 restriction)
+    fs := expect fs s!"{name}: appendWith refuses a signer for another key"
+      (wrongKey.toOption.isNone && payloads.isEmpty)
+    -- a third-party block
+    let request := Biscuit.thirdPartyRequest appendedWith
+    let .ok contents := Biscuit.signThirdPartyBlock thirdParty request thirdBlock
+      | return fs ++ [s!"{name}: could not sign a third-party block in Lean"]
+    let (contentsWith, payloads) := (Biscuit.signThirdPartyBlockWith thirdPublic
+      (recordingSigner thirdParty) request thirdBlock |>.run [] |>.run)
+    fs := expectEq fs s!"{name}: signThirdPartyBlockWith asks for exactly one signature"
+      payloads.length 1
+    fs := expectEq fs s!"{name}: signThirdPartyBlockWith gives the contents Lean gives"
+      (Bytes.toHex (Schema.encodeThirdPartyBlockContents contentsWith))
+      (Bytes.toHex (Schema.encodeThirdPartyBlockContents contents))
+    let .ok proof2 := appendedWith.proofKey | return fs ++ [s!"{name}: no proof key"]
+    let .ok proof2Public := proof2.publicKey | return fs ++ [s!"{name}: no proof public key"]
+    let (withThird, _) := recording
+      (appendedWith.appendThirdPartyWith proof2Public (recordingSigner proof2) ephemeral
+        contentsWith)
+    let .ok withThird := withThird | return fs ++ [s!"{name}: could not append the block"]
+    let .ok withThirdInLean := appendedWith.appendThirdParty ephemeral contents
+      | return fs ++ [s!"{name}: could not append the block in Lean"]
+    fs := expectEq fs s!"{name}: appendThirdPartyWith gives the bytes appendThirdParty gives"
+      (Bytes.toHex withThird.toBytes) (Bytes.toHex withThirdInLean.toBytes)
+    let .ok withThird := Biscuit.ofBytes withThird.toBytes rootPublic
+      | return fs ++ [s!"{name}: the token with a third-party block did not verify"]
+    fs := expectEq fs s!"{name}: and it authorizes as one made in Lean"
+      (authorize withThird "operation(\"read\");\nallow if user(\"alice\");") (.ok 0)
+    fs := expect fs s!"{name}: and its attenuation still binds"
+      (authorize withThird "operation(\"write\");\nallow if true;" |>.toOption.isNone)
+    -- sealed tokens take no block, however it would be signed
+    let .ok sealed := Biscuit.sealToken external | return fs ++ [s!"{name}: could not seal"]
+    let (onSealed, payloads) := recording
+      (sealed.appendWith proofPublic (recordingSigner proof) ephemeral2 restriction)
+    fs := expect fs s!"{name}: appendWith refuses a sealed token"
+      (match onSealed with
+        | .error .appendOnSealed => payloads.isEmpty
+        | _ => false)
+    -- a signer that answers with the wrong signature makes a token that does not verify
+    let (bogus, _) := recording
+      (Biscuit.createWith rootPublic (fun p => recordingSigner root (p ++ hexKey "00"))
+        ephemeral authority)
+    match bogus with
+    | .error _ => fs := fs ++ [s!"{name}: a bad signer should still produce bytes"]
+    | .ok t =>
+      fs := expect fs s!"{name}: a token with a bad root signature does not verify"
+        (Biscuit.ofBytes t.toBytes rootPublic |>.toOption.isNone)
+  pure fs
+
 /-! ## Authorization behaviour -/
 
 /-- Checks that exercise the parts of the engine the samples touch only
@@ -346,7 +466,8 @@ def engineTests : Failures := Id.run do
 
 /-- Run every check in this file. -/
 def runRoundTrip (samplesDir : System.FilePath) : IO Failures := do
-  let mut fs : Failures := cryptoTests ++ parserTests ++ tokenTests ++ engineTests
+  let mut fs : Failures := cryptoTests ++ parserTests ++ tokenTests ++ externalSignerTests ++
+    engineTests
   fs := fs ++ (← encodingTests samplesDir)
   pure fs
 
